@@ -68,7 +68,7 @@ jobs:
             book_switch_cooldown: 3600
 
         human_simulation:
-          enabled: false
+          enabled: true
           reading_speed_variation: true
           break_probability: 0.15
           break_duration: "10-20"
