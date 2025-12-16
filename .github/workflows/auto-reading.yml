@@ -6,13 +6,21 @@ on:
     - cron: '0 0 * * *'    # UTC 00:00 = 北京时间 08:00
     - cron: '0 22 * * *'   # UTC 12:00 = 北京时间 20:00
   
+  # 拉取请求触发，用于测试阅读
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'weread-bot.py'
+      - 'requirements.txt'
+      - '.github/workflows/ci.yml'
+
   # 手动触发
   workflow_dispatch:
     inputs:
       target_duration:
         description: '阅读时长（分钟，格式：10-20。建议：频繁运行时设置5-10分钟，GitHub免费版每月2000分钟额度）'
         required: false
-        default: '5-10'
+        default: '1-2'
         type: string
       reading_mode:
         description: '阅读模式'
@@ -57,8 +65,8 @@ jobs:
 
         reading:
           mode: "${{ github.event.inputs.reading_mode || 'smart_random' }}"
-          # 目标阅读时长（分钟），支持区间随机，当前为：45-90分钟
-          target_duration: "${{ github.event.inputs.target_duration || '45-90' }}"
+          # 目标阅读时长（分钟），支持区间随机，格式如："1" 或 "1-2"，当前为：1分钟
+          target_duration: "${{ github.event.inputs.target_duration || '1' }}"
           reading_interval: "30-48"
           use_curl_data_first: true
           fallback_to_config: true
@@ -98,8 +106,13 @@ jobs:
 
     - name: Run WeRead Bot
       env:
-        # 通知相关环境变量
+        # Cookie刷新QL属性，根据不同用户的环境，可能需要设置为True或False来确保cookie刷新正常工作，默认值为false
+        HACK_COOKIE_REFRESH_QL: ${{ secrets.HACK_COOKIE_REFRESH_QL }}
+        # 多用户 cURL：在 WEREAD_CURL_STRING 中放置多段 curl，段与段之间至少插入两个空行
         WEREAD_CURL_STRING: ${{ secrets.WEREAD_CURL_STRING }}
+        # 多用户并发控制，未设置默认 1（顺序执行）
+        MAX_CONCURRENT_USERS: ${{ secrets.MAX_CONCURRENT_USERS || 1 }}
+        # 通知相关环境变量
         PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -124,6 +137,12 @@ jobs:
         # 代理设置（可选）
         HTTP_PROXY: ${{ secrets.HTTP_PROXY }}
         HTTPS_PROXY: ${{ secrets.HTTPS_PROXY }}
+        SERVERCHAN3_UID: ${{ secrets.SERVERCHAN3_UID }}
+        SERVERCHAN3_SENDKEY: ${{ secrets.SERVERCHAN3_SENDKEY }}
+        SERVERCHAN3_TAGS: ${{ secrets.SERVERCHAN3_TAGS }}
+        SERVERCHAN3_SHORT: ${{ secrets.SERVERCHAN3_SHORT }}
+        PUSHDEER_PUSHKEY: ${{ secrets.PUSHDEER_PUSHKEY }}
+        PUSHDEER_TYPE: ${{ secrets.PUSHDEER_TYPE }}
         # 其他环境变量
         TZ: 'Asia/Shanghai'
       run: |

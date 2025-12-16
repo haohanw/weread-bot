@@ -14,12 +14,12 @@ WeRead Bot 是一个易用的微信读书自动阅读机器人，通过模拟真
 
 - ⏰ **智能延迟**：支持启动随机延迟，有效防止固定启动时间特征识别
 - 📚 **灵活阅读**：支持时长区间配置（如 30-90 分钟随机），模拟真实阅读习惯
-- 👥 **多用户支持**：支持多个微信读书账号顺序执行，每用户可独立配置阅读策略
+- 👥 **多用户支持**：支持多个微信读书账号执行，可配置最大并发数并为每个用户独立定制策略
 - 🎲 **多种阅读模式**：智能随机、顺序阅读、纯随机三种模式，满足不同使用场景
 - 🤖 **高级行为模拟**：模拟真实用户阅读行为，包括阅读速度变化、中途休息等
 - ⚙️ **多样化配置**：支持配置文件、环境变量、命令行参数三种设置方式，灵活适配各种部署环境
 - 📊 **详细统计报告**：提供完整的阅读数据、成功率统计和多维度分析
-- 📱 **多平台消息推送**：支持 PushPlus、Telegram、WxPusher、Apprise、Bark、Ntfy、飞书、企业微信、钉钉、Gotify 等通知服务
+- 📱 **多平台消息推送**：支持 PushPlus、Telegram、WxPusher、Apprise、Bark、Ntfy、飞书、企业微信、钉钉、Gotify、Server酱³、PushDeer 等通知服务
 - 🔧 **智能配置解析**：自动从 CURL 命令提取请求数据、headers 和 cookies，无需手动配置
 - 🎯 **精准请求模拟**：使用真实抓包数据，动态生成签名和校验，大幅提高成功率
 - 🕐 **灵活定时任务**：支持 cron 表达式定时执行，可自定义执行频率和时间
@@ -97,6 +97,8 @@ vim multiuser-config.yaml
 # 6. 运行多用户会话
 python weread-bot.py --config multiuser-config.yaml
 ```
+
+> - 也可以设置 `WEREAD_CURL_STRING`，用至少两个空行分隔多段 curl，每段对应一个用户；名称将自动生成为 `env_user_1` 等。
 
 ### 方式四：GitHub Actions 云端运行
 
@@ -178,7 +180,7 @@ open config-generator.html
 
 ### 多用户配置
 
-支持通过配置文件配置多个用户的CURL命令和个性化参数，适合需要同时管理多个微信读书账号的场景。
+支持通过配置文件配置多个用户的CURL命令和个性化参数，适合需要同时管理多个微信读书账号的场景。若无法写入文件（如 GitHub Actions Secrets），可使用 `WEREAD_CURL_STRING` 放置多段 curl，每段之间至少留出 **两个空行**，程序会自动拆分为多个用户（名称自动生成）。
 
 | 配置项 | 配置文件路径 | 说明 |
 |--------|-------------|------|
@@ -194,6 +196,7 @@ open config-generator.html
 |--------|----------|--------|------|
 | 启动模式 | `STARTUP_MODE` | `immediate` | immediate/scheduled/daemon |
 | 启动延迟 | `STARTUP_DELAY` | `60-120` | 启动随机延迟（秒） |
+| 最大并发用户 | `MAX_CONCURRENT_USERS` | `1` | 多用户模式下同时执行的账号数量 |
 
 ### 阅读配置
 
@@ -223,6 +226,37 @@ open config-generator.html
 | 重试次数 | `RETRY_TIMES` | `3` | 失败重试次数 |
 | 重试延迟 | `RETRY_DELAY` | `5-15` | 重试间隔（秒） |
 | 频率限制 | `RATE_LIMIT` | `10` | 请求频率（次/分钟） |
+
+> **提示**：`RATE_LIMIT` 现在会在内部以异步速率限制器落实到每一次 API 调用，`RETRY_DELAY` 则作为指数退避区间使用。合理配置这两个参数可以在稳定性与速度之间取得平衡，避免在长时间守护进程中被判定为异常流量。
+
+### Hack配置
+
+Hack配置用于解决特殊兼容性问题，包含以下选项：
+
+| 配置项 | 环境变量 | 默认值 | 说明 |
+|--------|----------|--------|------|
+| Cookie刷新QL属性 | `HACK_COOKIE_REFRESH_QL` | `false` | Cookie刷新时ql属性值设置 |
+
+**详细说明：**
+- `cookie_refresh_ql`: 控制Cookie刷新请求中的`ql`参数值
+  - `false` (默认): 使用`"ql": false`
+  - `true`: 使用`"ql": true`
+- 根据不同用户的环境，可能需要设置为True或False来确保cookie刷新正常工作
+- 如果遇到cookie刷新失败的问题，可以尝试切换此配置的值
+
+**使用场景：**
+```yaml
+# config.yaml 示例
+hack:
+  cookie_refresh_ql: false  # 或 true，根据您的环境测试确定
+```
+
+### 使用建议
+
+- **并发控制**：`MAX_CONCURRENT_USERS` 建议从 1 开始，根据机器性能和账号风险逐步提升；并发越高，对网络和请求频控要求越严格。
+- **速率限制**：`RATE_LIMIT` 与并发密切相关，若提升并发，请同步调低单会话频率或增大 `reading.reading_interval`，保持整体 QPS 可控。
+- **定时任务时区**：scheduled 模式完全按照 `TIMEZONE` 计算，跨地区运行前请先确认服务器系统时区，必要时设置为 UTC 并统一换算。
+- **守护模式节奏**：`daemon.session_interval` 不宜过小，建议 >=120 分钟，并结合 `max_daily_sessions` 控制每日触发次数，避免频繁刷新被识别。
 
 ### 通知配置
 
@@ -258,6 +292,12 @@ open config-generator.html
 | | `token` | `GOTIFY_TOKEN` | Gotify应用令牌 |
 | | `priority` | `GOTIFY_PRIORITY` | 消息优先级（1-10） |
 | | `title` | `GOTIFY_TITLE` | 消息标题 |
+| Server酱³ | `uid` | `SERVERCHAN3_UID` | Server酱³ UID |
+| | `sendkey` | `SERVERCHAN3_SENDKEY` | Server酱³ SendKey |
+| | `tags` | `SERVERCHAN3_TAGS` | 标签（可选，用|分隔） |
+| | `short` | `SERVERCHAN3_SHORT` | 简短描述（可选） |
+| PushDeer | `pushkey` | `PUSHDEER_PUSHKEY` | PushDeer PushKey |
+| | `type` | `PUSHDEER_TYPE` | 消息类型：text/markdown |
 
 ### 通知方式详细说明
 
@@ -281,6 +321,7 @@ open config-generator.html
 - 配置：设置 `APPRISE_URL`，格式如：
   - Discord: `discord://webhook_id/webhook_token`
   - Email: `mailto://user:pass@domain.com`
+  - 自部署 Apprise 服务器: `apprises://your_apprise_server.com/your_apprise_token/?tags=pro`
   - 更多格式见：[Apprise文档](https://github.com/caronc/apprise)
 
 #### Bark（iOS推送）
@@ -331,12 +372,38 @@ open config-generator.html
 - 示例：`https://gotify.example.com` + `your_app_token`
 - 官网：https://gotify.net/
 
+#### Server酱³（Server酱）
+- 获取方式：
+  1. 访问 [Server酱³](https://sc3.ft07.com/) 注册账号
+  2. 获取 UID 和 SendKey
+- 配置：设置 `SERVERCHAN3_UID` 和 `SERVERCHAN3_SENDKEY`
+- 标签：可选设置 `SERVERCHAN3_TAGS`，支持多个标签用|分隔
+- 简短描述：可选设置 `SERVERCHAN3_SHORT`，用于显示简要信息
+- 官网：https://sc3.ft07.com/
+- 文档：https://doc.sc3.ft07.com/
+
+#### PushDeer（开源推送服务）
+- 获取方式：
+  1. 访问 [PushDeer](https://www.pushdeer.com/) 或下载 iOS App
+  2. 注册账号并获取 PushKey
+- 配置：设置 `PUSHDEER_PUSHKEY`
+- 代理：支持HTTP/HTTPS代理（可选）
+- 消息格式：支持 纯文本和Markdown
+- 官网：https://www.pushdeer.com/
+- 文档：https://www.pushdeer.com/official.html
+
+#### 自定义通知服务
+
+如果没有找到合适的通知服务，可以通过 Apprise 配置需要的通知服务，如 **Email** 通知设置格式 `mailto://user:pass@domain.com`。配置请参考 [Apprise文档](https://github.com/caronc/apprise)。
+
 ### 定时任务配置（scheduled模式）
 | 配置项 | 环境变量 | 默认值 | 说明 |
 |--------|----------|--------|------|
 | 定时开关 | `SCHEDULE_ENABLED` | `false` | 是否启用定时任务 |
 | Cron表达式 | `CRON_EXPRESSION` | `0 */2 * * *` | 定时执行表达式 |
 | 时区 | `TIMEZONE` | `Asia/Shanghai` | 时区设置 |
+
+> **提示**：Scheduled 模式由 `croniter` + `ZoneInfo` 驱动，能够精准地按照配置时区计算下一次运行时间，无需再额外处理夏令时或跨地区偏移。
 
 ### 守护进程配置（daemon模式）
 | 配置项 | 环境变量 | 默认值 | 说明 |
@@ -373,6 +440,8 @@ schedule:
 - `"30 9 * * *"` - 每天9:30执行
 - `"0 * * * *"` - 每小时执行
 - `"0 9,18 * * *"` - 每天9点和18点执行
+- `"30 9,18 * * *"` - 每天9:30和18:30执行（多时间点）
+- `"0 8,12,18 * * *"` - 每天8:00、12:00、18:00执行
 
 ### 3. 守护进程模式 (daemon)
 
@@ -636,8 +705,7 @@ curl_config:
 
 **多用户执行特性：**
 
-- **顺序执行**：用户按配置顺序依次执行，避免同时请求
-- **用户间隔**：每个用户完成后有30-60秒的间隔延迟
+- **可控并发**：通过 `MAX_CONCURRENT_USERS` 控制同时在线的账号数量，默认1表示顺序执行
 - **独立配置**：每个用户可以有不同的阅读策略和时长
 - **错误隔离**：单个用户失败不影响其他用户执行
 - **统计汇总**：提供单用户和多用户的详细统计报告
@@ -894,7 +962,7 @@ notification:
 
 ### Q: 支持多账号同时运行吗？
 
-**A: 支持多用户模式，顺序执行多个账号：**
+**A: 支持多用户模式，可通过并发配置灵活执行多个账号：**
 ```yaml
 # 多用户配置方式
 curl_config:
@@ -910,8 +978,7 @@ curl_config:
 ```
 
 **执行特点：**
-- 按配置顺序依次执行，避免同时请求
-- 每个账号完成后有30-60秒间隔延迟
+- 通过 `MAX_CONCURRENT_USERS` 控制是否并发执行（默认1则顺序执行）
 - 单个账号失败不影响其他账号
 - 提供详细的多用户统计报告
 
@@ -924,11 +991,10 @@ python weread-bot.py --config account2.yaml
 
 ### Q: 多用户模式总执行时间是多少？
 **A: 执行时间计算：**
-- **总时间** = 所有用户阅读时长之和 + 用户间隔延迟
-- **示例**：3个用户，每个60分钟，间隔45秒
-  - 总时间 ≈ 180分钟 + 1.5分钟 = 181.5分钟
-- **优化建议**：合理设置每个用户的阅读时长，避免总时间过长
-- **说明**：总体是依次执行，不是并行执行，避免单次大量请求被识别异常
+- 当 `MAX_CONCURRENT_USERS = 1` 时，总时间≈所有用户阅读时长之和
+- 当并发数 > 1 时，总时间≈(总阅读时长 / 并发数) + 少量调度开销
+- **优化建议**：根据目标机器性能与风控策略调整并发数与单次时长
+- **说明**：适度的并发可以缩短整体运行时间，但请确保网络与账号风险可控
 
 ### Q: 某个用户失败了怎么办？
 **A: 错误处理机制：**
